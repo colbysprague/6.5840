@@ -8,8 +8,8 @@ import (
 )
 
 type Clerk struct {
-	server *labrpc.ClientEnd
-	// You will have to modify this struct.
+	server   *labrpc.ClientEnd
+	clientId int64
 }
 
 func nrand() int64 {
@@ -22,7 +22,8 @@ func nrand() int64 {
 func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.server = server
-	// You'll have to add code here.
+	ck.clientId = nrand()
+
 	return ck
 }
 
@@ -38,11 +39,26 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
 	reply := &GetReply{}
-	ck.server.Call("KVServer.Get", &GetArgs{
-		Key: key,
+	ok := ck.callWithRetry("KVServer.Get", &GetArgs{
+		Key:       key,
+		RequestId: nrand(),
+		ClientId:  ck.clientId,
 	}, reply)
 
+	if !ok {
+
+	}
+
 	return reply.Value
+}
+
+func (ck *Clerk) callWithRetry(servMeth string, args interface{}, reply interface{}) bool {
+	for {
+		ok := ck.server.Call(servMeth, args, reply)
+		if ok {
+			return true
+		}
+	}
 }
 
 // shared by Put and Append.
@@ -56,10 +72,16 @@ func (ck *Clerk) Get(key string) string {
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
 	// You will have to modify this function.
 	reply := &PutAppendReply{}
-	ck.server.Call("KVServer."+op, &PutAppendArgs{
-		Key:   key,
-		Value: value,
+	ok := ck.callWithRetry("KVServer."+op, &PutAppendArgs{
+		Key:       key,
+		Value:     value,
+		RequestId: nrand(),
+		ClientId:  ck.clientId,
 	}, reply)
+
+	if !ok {
+
+	}
 
 	return reply.Value
 }
