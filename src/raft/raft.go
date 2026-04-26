@@ -71,6 +71,8 @@ type Raft struct {
 	currentTerm int
 	votedFor    int
 	role        Role
+
+	lastHeartbeat time.Time
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 }
@@ -270,7 +272,6 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-
 		// Your code here (3A)
 		// Check if a leader election should be started.
 
@@ -278,6 +279,59 @@ func (rf *Raft) ticker() {
 		// milliseconds.
 		ms := 50 + (rand.Int63() % 300)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
+
+		rf.mu.Lock()
+		lastHeartbeat := rf.lastHeartbeat
+		rf.mu.Unlock()
+
+		if time.Since(lastHeartbeat) >= time.Duration(ms)*time.Millisecond {
+			rf.startElection()
+		}
+	}
+}
+
+func (rf *Raft) startElection() {
+	rf.mu.Lock()
+	rf.role = Candidate
+	rf.votedFor = rf.me
+	rf.currentTerm++
+	rf.mu.Unlock()
+
+	// send RequestVote RPCs in parallel
+	var votes int = 1
+	for peer := range rf.peers {
+		go func(id int) {
+
+			rf.mu.Lock()
+			args := &RequestVoteArgs{
+				Term:        rf.currentTerm,
+				CandidateId: rf.me,
+			}
+			rf.mu.Unlock()
+
+			reply := &RequestVoteReply{}
+			ok := rf.sendRequestVote(id, args, reply)
+
+			if ok {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+
+				if reply.Term > rf.currentTerm {
+					// abort this election since we are counting results for an old election
+					rf.currentTerm = reply.Term
+					rf.role = Follower
+					return
+				}
+
+				if reply.VoteGranted {
+					votes++
+					if votes >= len(rf.peers)/2+1 {
+						rf.role = Leader
+						rf.votedFor = NO_VOTE
+					}
+				}
+			}
+		}(peer)
 	}
 }
 
